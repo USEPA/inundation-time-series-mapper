@@ -4,6 +4,7 @@ import py3dep
 import geopandas
 import rioxarray
 import whitebox
+import pynhd
 import glob
 import subprocess
 from osgeo import gdal
@@ -13,16 +14,19 @@ import numpy as np
 from affine import Affine
 from rasterio.warp import transform_bounds
 
-#from whitebox_workflows import WbEnvironment
-
-async def download_dem(**kwargs):
-    domain        = kwargs.get('domain',    None)
-    verbose       = kwargs.get('verbose',   False)
-    overwrite     = kwargs.get('overwrite', False)
-    dem_rez       = kwargs.get('dem_rez',   None)
-    fname_dem     = kwargs.get('fname_dem', None)
+async def download_dem(*,
+          domain: geopandas.GeoDataFrame,
+          fname_dem: str,
+          dem_rez: int = None,
+          overwrite: bool = False,
+          verbose: bool = False,
+          compress: str = 'ztsd',
+          zlevel:int    = 9):
+    
+    if verbose: print(f'calling download_dem')
     if not os.path.isfile(fname_dem) or overwrite:
-        avail = py3dep.check_3dep_availability(bbox=tuple(domain.total_bounds),crs=domain.crs)
+        avail = py3dep.check_3dep_availability(bbox=tuple(domain.total_bounds),
+                                               crs=domain.crs)
         vals  = list()
         for k in avail.keys():
             try: vals.append(int(k.replace('m','')))
@@ -36,38 +40,20 @@ async def download_dem(**kwargs):
         dem = py3dep.get_dem(geometry   = domain.geometry.union_all(),
                              resolution = rez,
                              crs        = domain.crs)
-        dem.rio.to_raster(fname_dem)
+        dem.rio.to_raster(fname_dem, 
+                          driver="GTiff", 
+                          compress=compress, 
+                          zlevel=zlevel)
     else:
-        if verbose: print(f' using existing dem {fname_dem}')
+        if verbose: print(f' found existing dem {fname_dem}')
 
-def break_dem_old(**kwargs):
-    fname_dem_parent = kwargs.get('fname_dem_parent', None)
-    fname_dem_child  = kwargs.get('fname_dem_child',  None)
-    fname_boundary   = kwargs.get('fname_boundary',       None)
-    verbose          = kwargs.get('verbose',   False)
-    overwrite        = kwargs.get('overwrite', False)
-    if verbose: print(f'calling break_dem')
-    if not os.path.isfile(fname_dem_child) or overwrite:
-        if verbose: print(f' breaking {fname_dem_parent} using {fname_boundary} and writing to {fname_dem_child}')
-        boundary = geopandas.read_file(fname_boundary)
-        with rioxarray.open_rasterio(fname_dem_parent, 
-                                    masked=True, 
-                                    chunks="auto", 
-                                    parse_coordinates=False) as parent_rds:
-            boundary = boundary.to_crs(parent_rds.rio.crs)  
-            minx, miny, maxx, maxy = boundary.total_bounds
-            parent_rds2 = parent_rds.rio.clip_box(minx, miny, maxx, maxy)
-            child_rds = parent_rds2.rio.clip(boundary.geometry.values, boundary.crs,from_disk=True)
-            child_rds.rio.to_raster(fname_dem_child, driver="GTiff",compress="DEFLATE", tiled=True)
-    else:
-        if verbose: print(f' using existing dem {fname_dem_child}')
+def break_dem(*,
+    fname_dem_parent: str,
+    fname_dem_child: str,
+    fname_boundary: str,
+    overwrite: bool = False,
+    verbose: bool = False):
 
-def break_dem(**kwargs):
-    fname_dem_parent = kwargs.get('fname_dem_parent', None)
-    fname_dem_child  = kwargs.get('fname_dem_child',  None)
-    fname_boundary   = kwargs.get('fname_boundary',       None)
-    verbose          = kwargs.get('verbose',   False)
-    overwrite        = kwargs.get('overwrite', False)
     if verbose: print('calling break_dem')
     if not os.path.isfile(fname_dem_child) or overwrite:
         if verbose: print(f' creating {fname_dem_child} from {fname_dem_parent}')
@@ -100,18 +86,16 @@ def break_dem(**kwargs):
     else:
         if verbose: print(f' found {fname_dem_child}')
 
-def breach_dem(**kwargs):
-    fname_dem_breached = kwargs.get('fname_dem_breached', None)
-    fname_dem          = kwargs.get('fname_dem',          None)
-    verbose            = kwargs.get('verbose',            False)
-    overwrite          = kwargs.get('overwrite',          False)
+def breach_dem(*,
+    fname_dem_breached: str,
+    fname_dem: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+
     if verbose: print('calling breach_dem')
-    if fname_dem is None:
-        raise KeyError('breach_dem missing required argument fname_dem')
-    if not os.path.isfile(fname_dem):
-        raise ValueError(f'breach_dem could not find fname_dem {fname_dem}')
     if not os.path.isfile(fname_dem_breached) or overwrite:
-        if verbose: print(f' using whitebox to breach dem and writing to {fname_dem_breached}')
+        if verbose: 
+            print(f' using whitebox to breach dem and writing to {fname_dem_breached}')
         wbt = whitebox.WhiteboxTools()
         fname_filled = fname_dem.replace('.tif','_fill.tif')
         wbt.breach_single_cell_pits(
@@ -128,7 +112,7 @@ def breach_dem(**kwargs):
             ]
             if verbose:
                 cmd.append("--verbose")
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 check=True,
                 timeout=900,
@@ -149,12 +133,13 @@ def breach_dem(**kwargs):
     else:
         if verbose: print(f' found existing breached dem {fname_dem_breached}')
 
-def set_flow_acc(**kwargs):
-    fname_dem_breached = kwargs.get('fname_dem_breached', None)
-    fname_facc_ncells  = kwargs.get('fname_facc_ncells',  None)
-    fname_facc_sca     = kwargs.get('fname_facc_sca',     None)
-    verbose            = kwargs.get('verbose',            False)
-    overwrite          = kwargs.get('overwrite',          False)
+def set_flow_acc(*,
+    fname_dem_breached: str,
+    fname_facc_ncells: str,
+    fname_facc_sca: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+
     if verbose: print(f'calling set_flow_acc')
     if not os.path.isfile(fname_facc_ncells) or overwrite:
         if verbose: print(f' using whitebox to calculate flow accumulation (n cells), writing to {fname_facc_ncells}')
@@ -176,14 +161,15 @@ def set_flow_acc(**kwargs):
     else:
         if verbose: print(f' using existing flow accumulation (sca) file {fname_facc_sca}')
 
-def calc_stream_mask(**kwargs):
-    verbose               = kwargs.get('verbose',              False)
-    overwrite             = kwargs.get('overwrite',            False)
-    fname_facc_ncells     = kwargs.get('fname_facc_ncells',    None)
-    fname_facc_sca        = kwargs.get('fname_facc_sca',       None)
-    facc_threshold_ncells = kwargs.get('facc_threshold_ncells',None)
-    facc_threshold_sca    = kwargs.get('facc_threshold_sca',   None)
-    fname_strm_mask       = kwargs.get('fname_strm_mask',      None)
+def calc_stream_mask(*,
+    verbose: bool = False,
+    overwrite: bool = False,
+    fname_facc_ncells: str = None,
+    fname_facc_sca: str = None,
+    facc_threshold_ncells: float = None,
+    facc_threshold_sca: float = None,
+    fname_strm_mask: str = None):
+
     if verbose: print('calling calc_stream_mask')
     if not os.path.isfile(fname_strm_mask) or overwrite:
         if os.path.isfile(fname_facc_ncells):
@@ -205,11 +191,12 @@ def calc_stream_mask(**kwargs):
     else:
         if verbose: print(f' using existing stream mask {fname_strm_mask}')
 
-def calc_slope(**kwargs):
-    fname_dem_breached = kwargs.get('fname_dem_breached', None)
-    fname_slope        = kwargs.get('fname_slope',        None)
-    verbose            = kwargs.get('verbose',            False)
-    overwrite          = kwargs.get('overwrite',          False)
+def calc_slope(*,
+    fname_dem_breached: str,
+    fname_slope: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+
     if verbose: print(f'calling calc_slope')
     if not os.path.isfile(fname_slope) or overwrite:
         wbt = whitebox.WhiteboxTools()
@@ -219,12 +206,13 @@ def calc_slope(**kwargs):
     else:
         if verbose: print(f' using existing slope file {fname_slope}')
 
-def calc_twi(**kwargs):
-    fname_facc_sca     = kwargs.get('fname_facc_sca', None)
-    fname_slope        = kwargs.get('fname_slope',    None)
-    fname_twi          = kwargs.get('fname_twi',      None)
-    verbose            = kwargs.get('verbose',        False)
-    overwrite          = kwargs.get('overwrite',      False)
+def calc_twi(*,
+    fname_facc_sca: str,
+    fname_slope: str,
+    fname_twi: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+
     if verbose: print('calling calc_twi')
     if not os.path.isfile(fname_twi) or overwrite:
         if verbose: print(f' using whitebox workflows to calculate {fname_twi}')
@@ -235,7 +223,13 @@ def calc_twi(**kwargs):
     else:
         if verbose: print(f' found existing TWI file {fname_twi}')
 
-def calc_twi_mean(**kwargs):
+def calc_twi_mean(*,
+    fname_twi: str,
+    fname_twi_mean: str,
+    wtd_raw_dir: str,
+    verbose: bool = False,
+    overwrite: bool = False,
+    compress: str = 'deflate'):
     """
     Compute the mean TWI per WTD grid cell over the full TWI extent,
     then reproject the result back to the original TWI grid so all TWI cells
@@ -251,22 +245,6 @@ def calc_twi_mean(**kwargs):
       - overwrite: bool
       - compress: str (e.g., 'deflate' or 'lzw')
     """
-    import os
-    import glob
-    import math
-    import numpy as np
-    import rioxarray
-    import rasterio
-    from affine import Affine
-    from rasterio.warp import transform_bounds
-
-    fname_twi          = kwargs.get('fname_twi',      None)
-    fname_twi_mean     = kwargs.get('fname_twi_mean', None)
-    wtd_raw_dir        = kwargs.get('wtd_raw_dir',    None)
-    verbose            = kwargs.get('verbose',        False)
-    overwrite          = kwargs.get('overwrite',      False)
-    compress           = kwargs.get('compress',       'deflate')  # 'deflate' or 'lzw'
-
     if verbose:
         print('calling calc_twi_mean')
 
@@ -364,15 +342,14 @@ def calc_twi_mean(**kwargs):
         if verbose:
             print(f' wrote {fname_twi_mean}')
 
-def set_domain_mask(**kwargs):
-    domain            = kwargs.get('domain',            None)
-    verbose           = kwargs.get('verbose',           False)
-    overwrite         = kwargs.get('overwrite',         False)
-    fname_domain_mask = kwargs.get('fname_domain_mask', None)
-    fname_dem         = kwargs.get('fname_dem',         None)
+def set_domain_mask(*,
+    domain: geopandas.GeoDataFrame,
+    fname_domain_mask: str,
+    fname_dem: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+
     if verbose: print(f'calling set_domain_mask')
-    if not os.path.isfile(fname_dem):
-        raise ValueError(f'set_domain_mask could not find fname_dem {fname_dem}')
     if not os.path.isfile(fname_domain_mask) or overwrite:
         if verbose: print(f' creating {fname_domain_mask}')
         with rioxarray.open_rasterio(fname_dem) as riox_ds_dem:
@@ -384,6 +361,23 @@ def set_domain_mask(**kwargs):
             domain_mask.rio.to_raster(fname_domain_mask)
     else:
         if verbose: print(f' using existing domain mask {fname_domain_mask}')
+
+def set_streams(*,
+    domain: geopandas.GeoDataFrame,
+    fname_streams: str,
+    verbose: bool = False,
+    overwrite: bool = False):
+    
+    if verbose: print('calling set_streams')
+    if not os.path.isfile(fname_streams) or overwrite:
+        if verbose: print(f' using pynhd to download NHDPlusHR flowlines - saving to {fname_streams}')
+        nhd = pynhd.NHDPlusHR("flowline").bygeom(geom   =domain.total_bounds,
+                                                 geo_crs=domain.crs.to_string())
+        nhd = nhd.to_crs(domain.crs)
+        nhd = geopandas.clip(nhd, domain.geometry.union_all())
+        nhd.to_file(fname_streams, driver="GPKG")
+    else:
+        if verbose: print(f' using existing NHD line file {fname_streams}')
 
 
 
