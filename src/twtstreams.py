@@ -1,15 +1,10 @@
-import os,geopandas,pynhd,sys
+import os,geopandas,pynhd
 
 def set_streams(**kwargs):
     domain        = kwargs.get('domain',        None)
     fname_streams = kwargs.get('fname_streams', None)
     verbose       = kwargs.get('verbose',       False)
     overwrite     = kwargs.get('overwrite',     False)
-    fname_verbose = kwargs.get('fname_verbose', None)
-    if fname_verbose is not None:
-        f = open(fname_verbose, "a", buffering=1)
-        sys.stdout = f
-        sys.stderr = f
     if verbose: print('calling set_streams')
     if domain is None or not isinstance(domain,geopandas.GeoDataFrame):
         raise ValueError(f'set_streams missing required argument domain or is not valid geopandas.GeoDataFrame')
@@ -24,7 +19,3 @@ def set_streams(**kwargs):
         nhd.to_file(fname_streams, driver="GPKG")
     else:
         if verbose: print(f' using existing NHD line file {fname_streams}')
-    if fname_verbose is not None:
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
-        f.close()
