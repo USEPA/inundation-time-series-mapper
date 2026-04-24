@@ -1,23 +1,29 @@
 import os,pygeohydro,geopandas,shapely
     
-def set_domain(**kwargs):
-    fname_domain  = kwargs.get('fname_domain',  None)
-    verbose       = kwargs.get('verbose',       False)
-    overwrite     = kwargs.get('overwrite',     False)
-    domain_hucid     = kwargs.get('domain_hucid',     None)
-    domain_bbox   = kwargs.get('domain_bbox',   None)
-    domain_latlon = kwargs.get('domain_latlon', None)
-    conus1_domain = kwargs.get('conus1_domain', None)
+def set_domain(*,
+    fname_domain: str,
+    verbose: bool = False,
+    overwrite: bool = False,
+    domain_hucid: str = None,
+    domain_bbox: tuple = None,
+    domain_latlon: list = None,
+    conus1_domain: str = None):
     if verbose: print('calling set_domain')
     if fname_domain is None: 
         raise ValueError(f'_set_domain missing required argument fname_domain')
     if not os.path.isfile(fname_domain) or overwrite:
         if domain_hucid is not None:
-            domain = _set_domain_byhucid(**kwargs)
+            domain = _set_domain_byhucid(fname_domain=fname_domain, 
+                                         domain_hucid=domain_hucid, 
+                                         verbose=verbose)
         elif domain_bbox is not None:
-            domain = _set_domain_bybbox(**kwargs)
+            domain = _set_domain_bybbox(fname_domain=fname_domain, 
+                                        domain_bbox=domain_bbox, 
+                                        verbose=verbose)
         elif domain_latlon is not None:
-            domain = _set_domain_bylatlonandhuclvl(**kwargs)
+            domain = _set_domain_bylatlonandhuclvl(fname_domain=fname_domain, 
+                                                   domain_latlon=domain_latlon, 
+                                                   verbose=verbose)
         else:
             raise Exception(f'_set_domain could not set domain from arguments')
         if conus1_domain is not None:
@@ -29,15 +35,13 @@ def set_domain(**kwargs):
         domain = geopandas.read_file(fname_domain)
     return domain
         
-def set_domain_buf(**kwargs):
-    domain           = kwargs.get('domain',           None) 
-    buf_dist_m       = kwargs.get('buf_dist_m',       1000)
-    fname_domain_buf = kwargs.get('fname_domain_buf', None)
-    verbose          = kwargs.get('verbose',          False)
-    overwrite        = kwargs.get('overwrite',        False)
+def set_domain_buf(*,
+    domain: geopandas.GeoDataFrame,
+    buf_dist_m: int = 1000,
+    fname_domain_buf: str = None,
+    verbose: bool = False,
+    overwrite: bool = False):
     if verbose: print('calling set_domain_buf')
-    if fname_domain_buf is None: 
-        raise ValueError(f'set_domain_buf missing required argument fname_domain_buf')
     if not os.path.isfile(fname_domain_buf) or overwrite:
         if verbose: print(f' creating domain buffer {fname_domain_buf} with buffer distance {buf_dist_m} m')
         domain_buf = geopandas.GeoDataFrame(domain.drop(columns=['geometry']), 
@@ -50,15 +54,11 @@ def set_domain_buf(**kwargs):
         domain_buf = geopandas.read_file(fname_domain_buf)
     return domain_buf
 
-def _set_domain_byhucid(**kwargs):
-    fname_domain = kwargs.get('fname_domain', None)
-    domain_hucid    = kwargs.get('domain_hucid',    None)
-    verbose      = kwargs.get('verbose',      False)
+def _set_domain_byhucid(*,
+    fname_domain: str,
+    domain_hucid: str,
+    verbose: bool = False):
     if verbose: print('_set_domain_byhucid')
-    if domain_hucid is None: 
-        raise ValueError(f'_set_domain_byhucid missing required argument domain_hucid')
-    if not isinstance(domain_hucid,str): 
-        raise TypeError('_set_domain_byhucid domain_hucid must be type str') 
     if len(domain_hucid) not in (2,4,6,8,10,12):
         raise ValueError(f'_set_domain_byhucid domain_hucid {domain_hucid} is invalid, must be of len 2, 4, 6, 8, 10, 12')
     colnam = f'huc{len(domain_hucid)}'
@@ -71,10 +71,10 @@ def _set_domain_byhucid(**kwargs):
     domain.to_file(fname_domain, driver='GPKG')
     return domain
 
-def _set_domain_bybbox(**kwargs):
-    fname_domain = kwargs.get('fname_domain', None)
-    domain_bbox  = kwargs.get('domain_bbox',  None)
-    verbose      = kwargs.get('verbose',      False)
+def _set_domain_bybbox(*,
+    fname_domain: str,
+    domain_bbox: tuple,
+    verbose: bool = False):
     if verbose: print('_set_domain_bybbox')
     geom = shapely.geometry.box(domain_bbox[0],
                                 domain_bbox[1],
@@ -85,11 +85,11 @@ def _set_domain_bybbox(**kwargs):
     domain.to_file(fname_domain, driver='GPKG')
     return domain
 
-def _set_domain_bylatlonandhuclvl(**kwargs):
-    fname_domain  = kwargs.get('fname_domain',  None)
-    domain_latlon = kwargs.get('domain_latlon', None)
-    huc_lvl       = kwargs.get('huc_lvl',         12)
-    verbose       = kwargs.get('verbose',      False)
+def _set_domain_bylatlonandhuclvl(*,
+    fname_domain: str,
+    domain_latlon: list,
+    huc_lvl: int = 12,
+    verbose: bool = False):
     if verbose: print('_set_domain_bybbox')
     if int(huc_lvl) not in (2,4,6,8,10,12):
         raise ValueError(f'_set_domain_bylatlonandhuclvl huc_lvl {huc_lvl} is invalid, must be 2, 4, 6, 8, 10, 12')
@@ -105,11 +105,12 @@ def _set_domain_bylatlonandhuclvl(**kwargs):
     domain.to_file(fname_domain, driver='GPKG')
     return domain
 
-def get_conus1_hucs(**kwargs):
-    fname_domain      = kwargs.get('fname_domain',      None)
-    fname_domain_hucs = kwargs.get('fname_domain_hucs', None)
-    huc_lvl           = kwargs.get('huc_lvl',           8)
-    verbose           = kwargs.get('verbose',           False)
+def get_conus1_hucs(*, 
+    fname_domain: str, 
+    fname_domain_hucs: str, 
+    huc_lvl: int = 8, 
+    verbose: bool = False):
+    if verbose: print('calling get_conus1_hucs')
     if not os.path.isfile(fname_domain_hucs):
         fname_wb_full_temp = str(os.path.join(os.path.dirname(fname_domain_hucs),
                                               f'wb_full_huc{str(huc_lvl)}.gpkg'))
