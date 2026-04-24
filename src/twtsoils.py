@@ -1,13 +1,19 @@
-import os,numpy,geopandas,soiltexture,soildb,rioxarray,sys,subprocess,sqlite3,pyogrio
+import os
+import numpy as np
+import geopandas
+import soiltexture
+import soildb
+import rioxarray
+import pyogrio
 from geocube.api.core import make_geocube
 #from urllib import response
 
-def break_soil_texture(**kwargs):
-    fname_texture_parent = kwargs.get('fname_texture_parent', None)
-    fname_texture_child = kwargs.get('fname_texture_child',   None)
-    fname_domain        = kwargs.get('fname_domain',        None)
-    verbose       = kwargs.get('verbose',       False)
-    overwrite     = kwargs.get('overwrite',     False)
+def break_soil_texture(*,
+    fname_texture_parent=None,
+    fname_texture_child=None,
+    fname_domain=None,
+    verbose=False,
+    overwrite=False):
     if verbose: print('calling break_soil_texture')
     if not os.path.isfile(fname_texture_child) or overwrite:
         crs = pyogrio.read_info(fname_texture_parent)['crs']
@@ -20,12 +26,12 @@ def break_soil_texture(**kwargs):
     else:
         if verbose: print(f' found existing soil texture file {fname_texture_child}')
 
-async def download_soil_texture(**kwargs):
-    fname_texture = kwargs.get('fname_texture', None)
-    domain        = kwargs.get('domain',        None)
-    domain_buf    = kwargs.get('domain_buf',    None)
-    verbose       = kwargs.get('verbose',       False)
-    overwrite     = kwargs.get('overwrite',     False)
+async def download_soil_texture(*,
+    fname_texture=None,
+    domain=None,
+    domain_buf=None,
+    verbose=False,
+    overwrite=False):
     if verbose: print(f'calling set_soil_texture')
     if not os.path.isfile(fname_texture) or overwrite:
         if verbose: print(f' using soildb to download soil texture and saving to {fname_texture}')
@@ -66,12 +72,12 @@ async def download_soil_texture(**kwargs):
     else:
         if verbose: print(f' found existing soil texture file {fname_texture}')
 
-def set_soil_transmissivity(**kwargs):
-    fname_texture        = kwargs.get('fname_texture', None)
-    fname_dem            = kwargs.get('fname_dem',     None)
-    fname_transmissivity = kwargs.get('fname_transmissivity', None)
-    verbose              = kwargs.get('verbose',       False)
-    overwrite            = kwargs.get('overwrite',     False)
+def set_soil_transmissivity(*,
+    fname_texture=None,
+    fname_dem=None,
+    fname_transmissivity=None,
+    verbose=False,
+    overwrite=False):
     if verbose: print('calling set_soil_transmissivity')
     if not os.path.isfile(fname_transmissivity) or overwrite:
         if verbose: print(f' creating {fname_transmissivity} from {fname_texture}')
@@ -92,7 +98,7 @@ def set_soil_transmissivity(**kwargs):
         soil_texture = geopandas.read_file(fname_texture)
         def calc_f(row):
             if    row['texture'] in dt_transmissivity: return dt_transmissivity[str(row['texture']).lower()]
-            else: return numpy.mean(list(dt_transmissivity.values()))
+            else: return np.mean(list(dt_transmissivity.values()))
         soil_texture['f'] = soil_texture.apply(calc_f, axis=1)
         with rioxarray.open_rasterio(fname_dem,masked=True,chucks='auto') as riox_ds_dem:
             soil_texture = soil_texture.to_crs(riox_ds_dem.rio.crs)

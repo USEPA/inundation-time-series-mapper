@@ -6,7 +6,6 @@ import twtdomain
 import twtwt
 import twttopo
 import twtsoils
-import twtstreams
 import twtcalc
 import datetime
 import hf_hydrodata
@@ -15,15 +14,7 @@ async def calculate(fname_namelist):
     #
     #
     fname_namelist = os.path.abspath(str(fname_namelist))
-    #
-    #
     namelist = twtnamelist.Namelist(filename=fname_namelist)
-    #
-    #
-    #if namelist.options.usedask:
-    #chunks = {"y": 2048, "x": 2048}
-    #if namelist.options.verbose:
-    #    print(f'using dask with chunks {chunks}')
     #
     #
     kwargs = {'fname_domain' : namelist.fnames.domain,
@@ -167,10 +158,10 @@ async def calculate(fname_namelist):
               'domain'        : domain,
               'verbose'       : namelist.options.verbose,
               'overwrite'     : namelist.options.overwrite}
-    #try:
-    #    twtstreams.set_streams(**kwargs)
-    #except Exception as e:
-    #    print(f'WARNING: failed to get NHD stream lines with error {e}')
+    try:
+        twttopo.set_streams(**kwargs)
+    except Exception as e:
+        print(f'WARNING: failed to get NHD stream lines with error {e}')
     #
     #
     kwargs = {'dt_start'                  : namelist.time.start_date,
