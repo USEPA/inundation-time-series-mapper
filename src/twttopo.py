@@ -6,13 +6,14 @@ import rioxarray
 import whitebox
 import pynhd
 import glob
-import subprocess
 from osgeo import gdal
 from geocube.api.core import make_geocube
 import math
 import numpy as np
 from affine import Affine
 from rasterio.warp import transform_bounds
+from asyncio import sleep
+from py3dep.exceptions import ServiceUnavailableError
 
 async def download_dem(*,
           domain: geopandas.GeoDataFrame,
@@ -21,7 +22,9 @@ async def download_dem(*,
           overwrite: bool = False,
           verbose: bool = False,
           compress: str = 'ztsd',
-          zlevel:int    = 9):
+          zlevel:int    = 19,
+          n_retries: int = 10,  # number of retry attempts for DEM download in case of failure
+          base_wait: int = 60): # seconds to wait before retrying after a failure, will be multiplied by 2^attempt for exponential backoff
     
     if verbose: print(f'calling download_dem')
     if not os.path.isfile(fname_dem) or overwrite:
@@ -37,13 +40,26 @@ async def download_dem(*,
         if dem_rez in vals: rez = dem_rez # override with user input if available
         if verbose:
             print(f' downloading {str(rez)}m DEM to {fname_dem}')
-        dem = py3dep.get_dem(geometry   = domain.geometry.union_all(),
-                             resolution = rez,
-                             crs        = domain.crs)
-        dem.rio.to_raster(fname_dem, 
-                          driver="GTiff", 
-                          compress=compress, 
-                          zlevel=zlevel)
+        for attempt in range(1, n_retries + 1):
+            wait = base_wait * (2 ** attempt)
+            try:
+                dem = py3dep.get_dem(geometry   = domain.geometry.union_all(),
+                                     resolution = rez,
+                                     crs        = domain.crs)
+                dem.rio.to_raster(fname_dem, 
+                                driver="GTiff", 
+                                compress=compress, 
+                                zlevel=zlevel)
+                return
+            except ServiceUnavailableError as ex:
+                await sleep(wait)
+            except TimeoutError as ex:
+                if verbose:
+                    print(f" DEM download timed out (attempt {attempt}/{n_retries}) at {rez} m")
+                if attempt < n_retries:
+                    await sleep(wait) 
+                else:
+                    raise Exception(f"DEM download failed after {n_retries} attempts at {rez} m.") from ex
     else:
         if verbose: print(f' found existing dem {fname_dem}')
 
@@ -97,38 +113,17 @@ def breach_dem(*,
         if verbose: 
             print(f' using whitebox to breach dem and writing to {fname_dem_breached}')
         wbt = whitebox.WhiteboxTools()
+        wbt.set_compress_rasters(True) 
         fname_filled = fname_dem.replace('.tif','_fill.tif')
         wbt.breach_single_cell_pits(
             dem=fname_dem, 
             output=fname_filled, 
         )
-        try:
-            cmd = [
-                os.path.join(wbt.exe_path,wbt.exe_name),
-                "-r=breach_depressions_least_cost",
-                f"--dem={fname_filled}",
-                f"--output={fname_dem_breached}",
-                f"--dist={int(1000)}",
-            ]
-            if verbose:
-                cmd.append("--verbose")
-            subprocess.run(
-                cmd,
-                check=True,
-                timeout=900,
-                text=True,
-            )
-        except subprocess.TimeoutExpired:
-            if verbose: print(" breach least cost timeout reached (15 min)")
-        except Exception as e:
-            if verbose: print(f" WARNING breach least cost failed with message {e}")
-        if not os.path.isfile(fname_dem_breached): 
-            print(" WARNING using less preferable fill depressions algorithm")
-            wbt.fill_depressions(
-                dem=fname_filled, 
-                output=fname_dem_breached, 
-                fix_flats=True, 
-            )
+        wbt.breach_depressions_least_cost(
+            dem=fname_filled,
+            output=fname_dem_breached,
+            dist=int(1000),
+        )
         os.remove(fname_filled)
     else:
         if verbose: print(f' found existing breached dem {fname_dem_breached}')
@@ -144,6 +139,7 @@ def set_flow_acc(*,
     if not os.path.isfile(fname_facc_ncells) or overwrite:
         if verbose: print(f' using whitebox to calculate flow accumulation (n cells), writing to {fname_facc_ncells}')
         wbt = whitebox.WhiteboxTools()
+        wbt.set_compress_rasters(True) 
         wbt.d_inf_flow_accumulation(i        = fname_dem_breached,
                                     output   = fname_facc_ncells,
                                     out_type = 'cells',
@@ -153,6 +149,7 @@ def set_flow_acc(*,
     if not os.path.isfile(fname_facc_sca) or overwrite:
         if verbose: print(f' using whitebox to calculate flow accumulation (sca), writing to {fname_facc_sca}')
         wbt = whitebox.WhiteboxTools()
+        wbt.set_compress_rasters(True) 
         wbt.d_inf_flow_accumulation(i        = fname_dem_breached,
                                     output   = fname_facc_sca,
                                     out_type = 'sca',
@@ -175,6 +172,7 @@ def calc_stream_mask(*,
         if os.path.isfile(fname_facc_ncells):
             if verbose: print(f' setting stream mask using fname_facc_ncells {fname_facc_ncells} and facc_threshold_ncells {facc_threshold_ncells}')
             wbt = whitebox.WhiteboxTools()
+            wbt.set_compress_rasters(True) 
             wbt.extract_streams(flow_accum      = fname_facc_ncells,
                                 output          = fname_strm_mask,
                                 threshold       = facc_threshold_ncells,
@@ -182,6 +180,7 @@ def calc_stream_mask(*,
         elif os.path.isfile(fname_facc_sca):
             if verbose: print(f' setting stream mask using fname_facc_sca {fname_facc_sca} and facc_threshold_sca {facc_threshold_sca}')
             wbt = whitebox.WhiteboxTools()
+            wbt.set_compress_rasters(True) 
             wbt.extract_streams(flow_accum      = fname_facc_sca,
                                 output          = fname_strm_mask,
                                 threshold       = facc_threshold_sca,
@@ -200,6 +199,7 @@ def calc_slope(*,
     if verbose: print(f'calling calc_slope')
     if not os.path.isfile(fname_slope) or overwrite:
         wbt = whitebox.WhiteboxTools()
+        wbt.set_compress_rasters(True) 
         wbt.slope(dem    = fname_dem_breached,
                   output = fname_slope,
                   units  = 'degrees')
@@ -217,6 +217,7 @@ def calc_twi(*,
     if not os.path.isfile(fname_twi) or overwrite:
         if verbose: print(f' using whitebox workflows to calculate {fname_twi}')
         wbt = whitebox.WhiteboxTools()
+        wbt.set_compress_rasters(True) 
         wbt.wetness_index(sca    = fname_facc_sca,
                           slope  = fname_slope,
                           output = fname_twi)
@@ -229,7 +230,8 @@ def calc_twi_mean(*,
     wtd_raw_dir: str,
     verbose: bool = False,
     overwrite: bool = False,
-    compress: str = 'deflate'):
+    compress: str = 'ztsd',
+    zlevel: int = 19):
     """
     Compute the mean TWI per WTD grid cell over the full TWI extent,
     then reproject the result back to the original TWI grid so all TWI cells
@@ -336,6 +338,7 @@ def calc_twi_mean(*,
         twi_mean.rio.to_raster(
             fname_twi_mean,
             compress=compress,
+            zlevel=zlevel,
             tiled=True
         )
 
@@ -347,7 +350,9 @@ def set_domain_mask(*,
     fname_domain_mask: str,
     fname_dem: str,
     verbose: bool = False,
-    overwrite: bool = False):
+    overwrite: bool = False,
+    compress: str = 'ztsd',
+    zlevel: int = 19):
 
     if verbose: print(f'calling set_domain_mask')
     if not os.path.isfile(fname_domain_mask) or overwrite:
@@ -358,7 +363,12 @@ def set_domain_mask(*,
             domain = domain.drop(columns=[col for col in domain.columns if col not in ['geometry']])
             domain['mask'] = 1
             domain_mask = make_geocube(vector_data=domain,like=riox_ds_dem,measurements=['mask'])
-            domain_mask.rio.to_raster(fname_domain_mask)
+            domain_mask.rio.to_raster(fname_domain_mask,
+                                      driver="GTiff",
+                                      compress=compress,
+                                      zlevel=zlevel,
+                                      dtype='uint8',
+                                      nodata=0)
     else:
         if verbose: print(f' using existing domain mask {fname_domain_mask}')
 

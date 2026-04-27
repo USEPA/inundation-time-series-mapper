@@ -24,7 +24,7 @@ def calculate_inundation(*,
     compress: str = "zstd",
     warp_threads: int = 4,
     blocksize: int = 512,
-    zlevel: int = 9):
+    zlevel: int = 19):
 
     if verbose:
         print('calling calculate_inundation')
@@ -113,7 +113,7 @@ def calculate_summary_perc_inundated(
     overwrite=False,
     check_georef_once=True,
     compress="zstd",    # e.g., "LZW" for compression; None/"NONE" is fastest
-    zlevel=9,          # higher level than 1: better compression, similar read speed
+    zlevel=19,          # higher level than 1: better compression, similar read speed
     tiled=True,
     blocksize=512,
 ):
@@ -243,15 +243,14 @@ def calculate_summary_perc_inundated(
     perc_da.encoding = {}
 
     # Write to disk
-    write_kwargs = {}
-    if compress is not None:
-        write_kwargs["compress"] = compress
-    if zlevel is not None:
-        write_kwargs["zlevel"] = zlevel
-    if tiled:
-        write_kwargs.update(dict(tiled=True,
-                                 blockxsize=blocksize, 
-                                 blockysize=blocksize))
+    write_kwargs = dict(
+        tiled=tiled,
+        blockxsize=blocksize, 
+        blockysize=blocksize,
+        BIGTIFF="IF_SAFER",
+        compress=compress,
+        zlevel=zlevel
+    )
     perc_da.rio.to_raster(fname_output, **write_kwargs)
 
     if verbose:
@@ -265,7 +264,9 @@ def calculate_strm_permanence(
     fname_strm_mask=None,
     verbose=False,
     overwrite=False,
-    atol=1e-6 # tolerance for treating 100% as perennial
+    atol=1e-6, # tolerance for treating 100% as perennial
+    compress="zstd",
+    zlevel=19,          # higher level than 1: better compression, similar read
 ):
     """
     In-memory stream permanence computation
@@ -371,8 +372,8 @@ def calculate_strm_permanence(
     nonperennial_da = nonperennial_da.rio.write_nodata(np.nan, inplace=False)
 
     # Write outputs
-    perennial_da.rio.to_raster(fname_p, compress="zstd", zlevel=9)
-    nonperennial_da.rio.to_raster(fname_np, compress="zstd", zlevel=9)
+    perennial_da.rio.to_raster(fname_p, compress=compress, zlevel=zlevel)
+    nonperennial_da.rio.to_raster(fname_np, compress=compress, zlevel=zlevel)
 
     if verbose:
         print("done.")
@@ -428,7 +429,7 @@ def _write_binary_inundation_tiff(
     compress="zstd",
     bigtiff="IF_SAFER",
     blocksize=512,
-    zlevel=9,          # higher level than 1: better compression, similar read speed
+    zlevel=19,          # higher level than 1: better compression, similar read speed
 ):
     """
     Write a binary inundation mask (1=water, 0=NoData) as a compact, fast GeoTIFF:

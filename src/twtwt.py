@@ -61,7 +61,8 @@ def set_wtd_get_flag(*,
     dt_start: datetime.datetime,
     dt_end: datetime.datetime,
     dir_wtd: str,
-    overwrite: bool = False):
+    overwrite: bool = False,
+    verbose: bool = False):
     
     download_flag = False
     idt = dt_start
